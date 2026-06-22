@@ -1,8 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import datetime, timedelta
+from collections import deque
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
+
+MAX_RESTOCKING_ORDERS = 100  # ring buffer cap
+MAX_ITEMS_PER_ORDER = 50
+
+# In-memory store for submitted restocking orders (demo only, lost on restart)
+restocking_orders: deque = deque(maxlen=MAX_RESTOCKING_ORDERS)
 
 app = FastAPI(title="Factory Inventory Management System")
 
@@ -89,6 +97,7 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: float
 
 class BacklogItem(BaseModel):
     id: str
@@ -119,6 +128,28 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockingOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_cost: float
+
+class RestockingOrder(BaseModel):
+    id: str
+    order_number: str
+    items: List[RestockingOrderItem]
+    total_cost: float
+    status: str
+    submitted_date: str
+    expected_delivery: str
+
+class RestockingRequestItem(BaseModel):
+    sku: str
+    quantity: int = Field(gt=0, le=10000)
+
+class CreateRestockingOrderRequest(BaseModel):
+    items: List[RestockingRequestItem] = Field(min_length=1, max_length=MAX_ITEMS_PER_ORDER)
 
 # API endpoints
 @app.get("/")
@@ -303,6 +334,49 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.get("/api/restocking-orders", response_model=List[RestockingOrder])
+def get_restocking_orders():
+    """Get all submitted restocking orders"""
+    return list(restocking_orders)
+
+@app.post("/api/restocking-orders", response_model=RestockingOrder, status_code=201)
+def create_restocking_order(request: CreateRestockingOrderRequest):
+    """Submit a restocking order. unit_cost is resolved server-side from demand forecasts."""
+    skus = [i.sku for i in request.items]
+    if len(skus) != len(set(skus)):
+        raise HTTPException(status_code=422, detail="Duplicate SKUs in order")
+
+    forecast_by_sku = {f["item_sku"]: f for f in demand_forecasts}
+
+    resolved_items = []
+    total_cost = 0.0
+    for req_item in request.items:
+        forecast = forecast_by_sku.get(req_item.sku)
+        if not forecast:
+            raise HTTPException(status_code=422, detail=f"SKU '{req_item.sku}' not found in demand forecasts")
+        item_total = forecast["unit_cost"] * req_item.quantity
+        total_cost += item_total
+        resolved_items.append({
+            "sku": req_item.sku,
+            "name": forecast["item_name"],
+            "quantity": req_item.quantity,
+            "unit_cost": forecast["unit_cost"]
+        })
+
+    now = datetime.utcnow()
+    order_number = f"RST-2026-{len(restocking_orders) + 1:04d}"
+    order = {
+        "id": str(len(restocking_orders) + 1),
+        "order_number": order_number,
+        "items": resolved_items,
+        "total_cost": round(total_cost, 2),
+        "status": "Submitted",
+        "submitted_date": now.isoformat(),
+        "expected_delivery": (now + timedelta(days=14)).isoformat()
+    }
+    restocking_orders.append(order)
+    return order
 
 if __name__ == "__main__":
     import uvicorn
