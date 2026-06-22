@@ -1,12 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
+from collections import deque
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
+MAX_RESTOCKING_ORDERS = 100  # ring buffer cap
+MAX_ITEMS_PER_ORDER = 50
+
 # In-memory store for submitted restocking orders (demo only, lost on restart)
-restocking_orders: List[dict] = []
+restocking_orders: deque = deque(maxlen=MAX_RESTOCKING_ORDERS)
 
 app = FastAPI(title="Factory Inventory Management System")
 
@@ -142,10 +146,10 @@ class RestockingOrder(BaseModel):
 
 class RestockingRequestItem(BaseModel):
     sku: str
-    quantity: int
+    quantity: int = Field(gt=0, le=10000)
 
 class CreateRestockingOrderRequest(BaseModel):
-    items: List[RestockingRequestItem]
+    items: List[RestockingRequestItem] = Field(min_length=1, max_length=MAX_ITEMS_PER_ORDER)
 
 # API endpoints
 @app.get("/")
@@ -334,13 +338,14 @@ def get_monthly_trends():
 @app.get("/api/restocking-orders", response_model=List[RestockingOrder])
 def get_restocking_orders():
     """Get all submitted restocking orders"""
-    return restocking_orders
+    return list(restocking_orders)
 
 @app.post("/api/restocking-orders", response_model=RestockingOrder, status_code=201)
 def create_restocking_order(request: CreateRestockingOrderRequest):
     """Submit a restocking order. unit_cost is resolved server-side from demand forecasts."""
-    if not request.items:
-        raise HTTPException(status_code=422, detail="Order must contain at least one item")
+    skus = [i.sku for i in request.items]
+    if len(skus) != len(set(skus)):
+        raise HTTPException(status_code=422, detail="Duplicate SKUs in order")
 
     forecast_by_sku = {f["item_sku"]: f for f in demand_forecasts}
 
