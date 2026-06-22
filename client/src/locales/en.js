@@ -6,6 +6,7 @@ export default {
     orders: 'Orders',
     finance: 'Finance',
     demandForecast: 'Demand Forecast',
+    restocking: 'Restocking',
     companyName: 'Catalyst Components',
     subtitle: 'Inventory Management System'
   },
@@ -309,6 +310,31 @@ export default {
     english: 'English',
     japanese: 'Japanese',
     selectLanguage: 'Select Language'
+  },
+
+  // Restocking
+  restocking: {
+    title: 'Restocking',
+    description: 'Set your budget and generate purchase orders from demand forecasts',
+    budgetSlider: 'Available Budget',
+    recommendedOrder: 'Recommended Restocking Order',
+    placeOrder: 'Place Order',
+    orderPlaced: 'Order Placed',
+    noItems: 'Increase budget to include items',
+    budgetUsed: 'Budget Used',
+    budgetRemaining: 'Budget Remaining',
+    trend: 'Trend',
+    qty: 'Qty',
+    unitCost: 'Unit Cost',
+    total: 'Total',
+    submittedOrders: 'Submitted Restocking Orders',
+    submittedDate: 'Submitted',
+    expectedDelivery: 'Expected Delivery',
+    leadTime: '14-day lead time',
+    orderSuccess: 'Restocking order placed successfully',
+    itemCount: '{count} items',
+    excludedItems: 'Items below are excluded (budget limit reached)',
+    allItemsSelected: 'All items fit within budget'
   },
 
   // Common
